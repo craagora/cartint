@@ -60,6 +60,20 @@ On first load, the dashboard will show an **AI Setup Required** screen if no AI 
 
 ---
 
+## Run It in a Container
+
+This fork publishes a ready-made image, `ghcr.io/craagora/cartint`, for amd64 and arm64. One container runs the dashboard, both mini-services and a small proxy that puts them all on port 8080.
+
+```bash
+docker compose up -d
+```
+
+Then open http://localhost:8080 and choose an AI provider on the setup screen (or set `AI_PROVIDER`, `AI_API_KEY` and `AI_MODEL` in the environment). The database and saved AI settings live in the `cartint-data` volume.
+
+You can also paste this repository's link into Kantrix, which reads `compose.yaml` and deploys the same image.
+
+To build the image yourself: `docker build -t cartint .`
+
 ## What Needs to Be Running Before the Dashboard
 
 CARTINT has **3 components**. The dashboard (Next.js) is the main one — the other two are **mini-services** that auto-start when the dashboard loads:

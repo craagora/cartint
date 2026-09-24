@@ -1,0 +1,17 @@
+# One address for the whole app. The browser reaches the two mini-services
+# through the same origin with ?XTransformPort=<port>, the way the app's own
+# code expects when it is not on localhost:3000 (src/hooks/use-threat-stream.ts).
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	@feed query XTransformPort=3003
+	reverse_proxy @feed 127.0.0.1:3003
+
+	@watchdog query XTransformPort=3004
+	reverse_proxy @watchdog 127.0.0.1:3004
+
+	reverse_proxy 127.0.0.1:3000
+}

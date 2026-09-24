@@ -1,0 +1,30 @@
+# Runs CARTINT from its published image. Paste this repository's link into
+# Kantrix (or run `docker compose up -d`) and open port 8080.
+#
+# The AI provider can be set here or later on the app's own setup screen.
+# Everything the app saves (its SQLite database and AI settings) is in the
+# cartint-data volume.
+services:
+  cartint:
+    image: ghcr.io/craagora/cartint:${CARTINT_VERSION:-1.0.0}
+    ports:
+      - "8080:8080"
+    environment:
+      # openai, anthropic, google, ollama or custom. Leave empty to choose in the app.
+      AI_PROVIDER: ${AI_PROVIDER-}
+      AI_API_KEY: ${AI_API_KEY-}
+      AI_BASE_URL: ${AI_BASE_URL-}
+      AI_MODEL: ${AI_MODEL-}
+      # Optional: leak-site health monitoring.
+      RANSOMLOOK_API_KEY: ${RANSOMLOOK_API_KEY-}
+      # Optional: a Tor SOCKS proxy for dark-web sources.
+      TOR_SOCKS_HOST: ${TOR_SOCKS_HOST-127.0.0.1}
+      TOR_SOCKS_PORT: ${TOR_SOCKS_PORT-9050}
+    volumes:
+      - cartint-data:/app/db
+    restart: unless-stopped
+
+volumes:
+  cartint-data:
+    labels:
+      kantrix.io/size: 5Gi
