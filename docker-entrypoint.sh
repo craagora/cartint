@@ -1,8 +1,8 @@
 #!/bin/sh
-# Bring the SQLite schema up to date, start the dashboard, and start the
-# mini-services behind it. That is what package.json's "start" and the
-# dashboard's own self-healing do between them; this is the same thing inside a
-# container.
+# Bring the SQLite schema up to date, put the proxy in front, start the
+# dashboard, and start the mini-services behind it. That is what package.json's
+# "start" and the dashboard's own self-healing do between them, plus the one
+# piece a container needs that a developer's machine does not.
 set -e
 
 mkdir -p /app/db
@@ -13,16 +13,29 @@ mkdir -p /app/db
 bun /opt/prisma/node_modules/prisma/build/index.js db push \
 	--schema=/app/prisma/schema.prisma --skip-generate
 
+# The proxy, on the published port. It answers 502 until the dashboard is
+# listening, which is what the wait below is for. Nothing else restarts it, so
+# it restarts itself: the dashboard is PID 1 and the container's life is the
+# dashboard's, but an unreachable container would be worse than a dead one.
+(
+	while :; do
+		bun /app/docker-feed-proxy.js || true
+		echo "[entrypoint] the proxy exited; starting it again"
+		sleep 2
+	done
+) &
+
 # The threat feed (3003) and the watchdog and scheduler (3004), started by the
 # repository's own script so there is one way of starting them. It is
 # idempotent, and it is the same script the dashboard runs when its System
 # Status panel finds a service down, so a service that dies comes back.
 #
-# They wait for the dashboard first. The watchdog runs its own health check two
-# seconds after it starts and counts a failure towards restarting the app, so
-# starting it before the server is listening puts a failure in the log for
-# nothing. The wait gives up after two minutes and starts them anyway, because
-# a dashboard that never answers is the watchdog's business.
+# They wait for the dashboard first, through the proxy, which checks both. The
+# watchdog runs its own health check two seconds after it starts and counts a
+# failure towards restarting the app, so starting it before the server is
+# listening puts a failure in the log for nothing. The wait gives up after two
+# minutes and starts them anyway, because a dashboard that never answers is the
+# watchdog's business.
 (
 	i=0
 	while [ "$i" -lt 120 ]; do

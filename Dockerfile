@@ -12,6 +12,10 @@
 # names, the scraper posts to THREAT_FEED_URL whose default is localhost:3003,
 # and mini-services/start-services.sh (which the dashboard runs itself when it
 # finds a service down) starts them as local processes.
+#
+# A fourth process, docker-feed-proxy.js, sits in front of them on the port the
+# container publishes, because the browser asks for the feed through the page's
+# own origin. It is 140 lines of Bun and adds no dependency.
 
 FROM oven/bun:1 AS build
 WORKDIR /app
@@ -29,16 +33,19 @@ WORKDIR /app
 ENV NODE_ENV=production
 # The database lives on the volume, never in the image layer.
 ENV DATABASE_URL=file:/app/db/custom.db
-# The standalone server binds process.env.HOSTNAME, and Docker sets HOSTNAME to
-# the container id, so without this line the server answers on the container's
-# own address and NOTHING on 127.0.0.1: the healthcheck below, the watchdog's
-# ping and the status panel's probes would all fail while the app was serving
-# traffic perfectly well through the published port.
-ENV HOSTNAME=0.0.0.0
-# The two mini-services, as this container addresses them. 127.0.0.1 rather
-# than localhost on purpose: the standalone server listens on IPv4 only, and a
-# resolver that answers localhost with ::1 first would make the watchdog think
-# the dashboard was down. Both are overridable.
+# The dashboard listens on 3100 behind docker-feed-proxy.js, which is what the
+# published port 3000 reaches. The proxy exists so the browser's live threat
+# feed works; the file says why in full.
+#
+# HOSTNAME is the address the Next standalone server binds, and Docker sets it
+# to the container id, which is neither loopback nor useful. Loopback is now
+# exactly right: the only thing that talks to the dashboard directly is the
+# proxy beside it, and nothing outside the container can reach 3100 at all.
+ENV PORT=3100
+ENV HOSTNAME=127.0.0.1
+# The mini-services, as this container addresses them. 127.0.0.1 rather than
+# localhost on purpose: a resolver that answers localhost with ::1 first would
+# make the watchdog think the dashboard was down. Both are overridable.
 ENV NEXT_URL=http://127.0.0.1:3000
 ENV THREAT_FEED_URL=http://127.0.0.1:3003
 
@@ -80,6 +87,7 @@ WORKDIR /opt/prisma
 RUN bun add --exact prisma@6.19.2
 WORKDIR /app
 
+COPY docker-feed-proxy.js ./docker-feed-proxy.js
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh && mkdir -p /app/db
 
