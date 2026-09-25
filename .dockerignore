@@ -1,0 +1,33 @@
+# What must not reach the build context.
+#
+# node_modules and .next above all: the build installs and builds inside the
+# image, and a host copy would be copied over the result, which on a different
+# architecture means native modules that cannot load.
+node_modules
+**/node_modules
+.next
+out
+
+# The developer's own database and logs. The container's database lives on a
+# volume and is created on first start.
+db
+*.log
+dev.log
+mini-services/*.log
+
+# Secrets. .z-ai-config holds an API key, so it is deliberately left out of the
+# image: configure the provider through the dashboard's setup screen, or through
+# AI_PROVIDER, AI_API_KEY, AI_BASE_URL and AI_MODEL.
+.env
+.env.*
+!.env.example
+.z-ai-config
+
+.git
+.gitignore
+.github
+Dockerfile
+.dockerignore
+compose.yaml
+README.md
+worklog.md

@@ -1,0 +1,71 @@
+# CARTINT as one service, with its database on a volume beside it.
+#
+# The image is published by .github/workflows/publish-image.yml on every push
+# to main, so a platform that only pulls images can run this file as it stands.
+# The build line below is for a local checkout: docker compose up --build.
+#
+# One service, three processes. The dashboard, the threat feed (3003) and the
+# watchdog and scheduler (3004) share a container because the app addresses
+# them as localhost and starts them itself; see the Dockerfile for the detail.
+services:
+  cartint:
+    image: ghcr.io/reuelmagistrado/cartint:latest
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      # SQLite on the volume below. The volume also holds ai-settings.json,
+      # which the in-app AI setup screen writes to <cwd>/db, so a provider
+      # configured in the browser survives a restart too.
+      DATABASE_URL: file:/app/db/custom.db
+      NODE_ENV: production
+      # The AI provider, which the app needs before it can classify anything.
+      # Leaving these empty is fine: the dashboard asks on first load and writes
+      # the answer to the volume. src/lib/ai-provider.ts accepts openai,
+      # anthropic, google, ollama and custom, and reads any other value,
+      # including the repository's own zai default, as custom. zai's
+      # .z-ai-config file is deliberately not in the image, because it holds a
+      # key.
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL: ${AI_MODEL:-}
+      # THREAT_FEED_URL and NEXT_URL are set in the image, because they name
+      # processes inside the container rather than anything an operator picks.
+      #
+      # The rest are optional: every one has a default in the source, so a line
+      # left out changes nothing.
+      RANSOMLOOK_API_URL: ${RANSOMLOOK_API_URL:-https://www.ransomlook.io/api}
+      # Tor, for dark web scraping. There is no Tor in this image: point these
+      # at a Tor container or a host that runs one, or leave the scraper to the
+      # sources it can reach without it.
+      TOR_SOCKS_HOST: ${TOR_SOCKS_HOST:-127.0.0.1}
+      TOR_SOCKS_PORT: ${TOR_SOCKS_PORT:-9050}
+      MAX_DOWNLOAD_BYTES: ${MAX_DOWNLOAD_BYTES:-1000000}
+      MAX_EXTRACTED_TEXT: ${MAX_EXTRACTED_TEXT:-50000}
+      MAX_RETURN_CHARS: ${MAX_RETURN_CHARS:-2000}
+      SCRAPE_TIMEOUT_TOR: ${SCRAPE_TIMEOUT_TOR:-45}
+      SCRAPE_MAX_WORKERS: ${SCRAPE_MAX_WORKERS:-5}
+    volumes:
+      - cartint-db:/app/db
+    restart: unless-stopped
+    healthcheck:
+      # bun is the only HTTP client in the image, and this asks the dashboard
+      # itself rather than the port, so a server that is up but broken fails.
+      test:
+        - CMD
+        - bun
+        - -e
+        - fetch('http://127.0.0.1:3000/api/stats').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  cartint-db:
+    labels:
+      # Read by Kantrix, which sizes the volume it creates from this and would
+      # otherwise make it 1 GiB. Docker Compose ignores it: a label on a volume
+      # is just a label.
+      kantrix.io/size: 10Gi
