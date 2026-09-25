@@ -12,7 +12,13 @@ services:
     image: ghcr.io/reuelmagistrado/cartint:latest
     build: .
     ports:
-      - "3000:3000"
+      # 8080 and not 3000 on purpose. src/hooks/use-threat-stream.ts connects
+      # straight to localhost:3003 when, and only when, the page is served from
+      # localhost:3000, so publishing the app on 3000 would put the browser on
+      # a path that needs a second published port. On any other port the hook
+      # asks through the page's own origin, which is what the proxy inside the
+      # container answers, and one published port is the whole app.
+      - "8080:3000"
     environment:
       # SQLite on the volume below. The volume also holds ai-settings.json,
       # which the in-app AI setup screen writes to <cwd>/db, so a provider

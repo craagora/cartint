@@ -8,10 +8,11 @@
 // a proxy that knows what to do with them they reach Next.js, which knows
 // nothing about them, and the dashboard's badge reads OFFLINE forever.
 //
-// So: /socket.io/ goes to the threat feed on 3003, everything else to the
-// dashboard, and the port the app is published on is this one. Nothing in the
-// app changes, and the developer's own localhost:3000 checkout is untouched,
-// because there the hook never asks for this path.
+// So: /socket.io/ and anything naming ?XTransformPort=3003 go to the threat
+// feed, ?XTransformPort=3004 goes to the watchdog, and everything else goes to
+// the dashboard. Nothing in the app changes, and the developer's own
+// localhost:3000 checkout is untouched, because there the hook never asks for
+// any of this.
 //
 // It is deliberately the only thing in front of Next.js. It adds no caching,
 // no rewriting and no TLS: whatever a platform's own ingress does stays its
@@ -22,6 +23,25 @@ const APP = `http://127.0.0.1:${process.env.APP_PORT || 3100}`;
 const FEED = `http://127.0.0.1:${process.env.FEED_PORT || 3003}`;
 const FEED_WS = FEED.replace("http://", "ws://");
 const FEED_PATH = "/socket.io/";
+
+// The app's own convention for reaching a mini-service through the page's
+// origin, as ?XTransformPort=<port>. The hook uses it for the feed today, and
+// the System Status panel's ports are the only two that may ever be named, so
+// they are the only two allowed: forwarding to whatever port a query asks for
+// would make this an open door onto the container's localhost.
+const BY_QUERY = new Map([
+	["3003", FEED],
+	["3004", `http://127.0.0.1:${process.env.WATCHDOG_PORT || 3004}`],
+]);
+
+// upstreamFor returns the base URL a request goes to, and whether it is the
+// feed (the only one worth relaying a websocket for).
+function upstreamFor(url) {
+	const asked = BY_QUERY.get(url.searchParams.get("XTransformPort") || "");
+	if (asked) return { base: asked, feed: asked === FEED };
+	if (url.pathname.startsWith(FEED_PATH)) return { base: FEED, feed: true };
+	return { base: APP, feed: false };
+}
 
 // Headers that belong to one hop and must not be forwarded, plus the two that
 // describe a body this process did not encode: fetch decodes the upstream
@@ -69,7 +89,7 @@ const server = Bun.serve({
 	idleTimeout: 0,
 	async fetch(req, srv) {
 		const url = new URL(req.url);
-		const toFeed = url.pathname.startsWith(FEED_PATH);
+		const { base, feed: toFeed } = upstreamFor(url);
 
 		if (toFeed && (req.headers.get("upgrade") || "").toLowerCase() === "websocket") {
 			const target = FEED_WS + url.pathname + url.search;
@@ -78,7 +98,6 @@ const server = Bun.serve({
 			return new Response("websocket upgrade failed", { status: 400 });
 		}
 
-		const base = toFeed ? FEED : APP;
 		const init = {
 			method: req.method,
 			headers: forwardHeaders(req, url),
@@ -98,7 +117,7 @@ const server = Bun.serve({
 		} catch (e) {
 			// The dashboard is not listening yet, or has stopped. Say which one,
 			// because a 502 from a proxy nobody knew was there is a bad hour.
-			const who = toFeed ? "threat feed" : "dashboard";
+			const who = base === APP ? "dashboard" : base === FEED ? "threat feed" : "watchdog";
 			return new Response(`${who} is not answering: ${e.message}\n`, {
 				status: 502,
 				headers: { "content-type": "text/plain" },
@@ -137,4 +156,7 @@ const server = Bun.serve({
 	},
 });
 
-console.log(`[proxy] listening on ${server.port}: ${FEED_PATH} to ${FEED}, everything else to ${APP}`);
+console.log(
+	`[proxy] listening on ${server.port}: ${FEED_PATH} and ?XTransformPort=3003 to ${FEED}, ` +
+		`?XTransformPort=3004 to the watchdog, everything else to ${APP}`,
+);
